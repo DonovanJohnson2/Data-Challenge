@@ -1,0 +1,492 @@
+---
+title: "Capital One Data Challenge"
+author: "Donovan Johnson"
+output:
+  html_notebook: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+### {.tabset}
+
+#### Packages and Meta Data
+
+__Install and Initialize Packages__
+```{r}
+packages <- c("rlang" #provides various interfaces for working with R and R objects.
+              ,"ggplot2" #used for data visualization  
+              , "dplyr" #used to manipulate data
+              , "tidyr"#used to create tidy data
+              ,"readr" #used to read in data
+              ,"DataExplorer" #used to do Exploratory Data Analysis and structure of data set
+              , "DT" #Create Nice Data Tables
+              , "ggpubr" #Arrange ggplots
+              ,"ggcorrplot" #Make Correlation Plot Visualization 
+              ,"viridis" #Adds more eye popping colors
+              ,"skimr") #Make summary statistic tables
+
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed_packages])
+}
+# Packages loading
+invisible(lapply(packages, library, character.only = TRUE))
+```
+
+__Meta Data__
+```{r}
+#Create a table for Meta Data
+meta_data<-data.frame(Dataset=c("flights","flights","finaldf","finaldf",
+                                "finaldf","finaldf","finaldf","finaldf",
+                                "finaldf","finaldf","finaldf","finaldf",
+                                "finaldf","agg_tbl4","agg_tbl4","agg_tbl4"),
+  Field_name=c("ORIGIN_AIRPORTSIZE","DESTINATION_AIRPORTSIZE",
+               "DEP15","ARR15","CPM","OOC","DOC",
+               "COST","TREV","BREV","REV","PROFIT","Pair",
+               "DDP","PM","Breakeven"),
+  Description=c("The type of the origin airport:large or medium",
+                "The type of the destination airport:large or medium",
+                "Departure Delay Charge","Arrival Delay Charge",
+                "Cost per mile of trip",
+                "Operation Cost for Orgigin airport",
+                "Operation Cost for Destination airport",
+                "Cost of the Round Trip",
+                "Revenue from ticket sales",
+                "Revenue from bag fee",
+                "Total Revenue",
+                "Toal Profit",
+                "Order Pair of Destination and Origin",
+                "Departure Delay Per Passenger",
+                "Profit Margin",
+                "Amount of flights needed to breakeven"
+                ))
+
+datatable(meta_data,class='cell-border stripe',caption="Metadata",autoHideNavigation = getOption("DT.autoHideNavigation", TRUE))
+```
+
+__Import Data sets__
+```{r}
+flights<-read_csv("C:/Users/djrem/Desktop/rPractice/Flights.csv")
+airport_codes<-read_csv("C:/Users/djrem/Desktop/rPractice/Airport_Codes.csv")
+tickets<-read_csv("C:/Users/djrem/Desktop/rPractice/Tickets.csv")
+```
+
+#### Quality Check
+```{r}
+#Filter for only medium or large airports and only the US destinations
+airport_codes <- airport_codes %>%
+  filter(TYPE %in% c("medium_airport", "large_airport") & ISO_COUNTRY == "US")
+
+#filter out trips that are not round trip
+tickets <-filter(tickets,ROUNDTRIP==1)
+
+#Remove cancelled flights from Data set
+flights <- flights %>%
+  filter(CANCELLED==0) 
+```
+
+
+```{r}
+#Create Function to Look at Structure and Exploratory Data Analysis
+Structure_EDA <-function(df){
+#shows the structure of each column in a data set
+  str(df)
+  
+#plots the percentage of data missing by column
+plot_missing(df, geom_label_args = list("size" = 2, "label.padding" = unit(0.2, "lines")),title="Percentage of Data Missing by Column",theme_config = list(legend.position = c("none")))
+
+#plots a histogram for each int column
+plot_histogram(df,title="Distribution of Integer Data",theme_config=list(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),plot.title=element_text(size=5)))
+
+#plots a bar graph for columns that have integer data and can be grouped realistically
+plot_bar(df,title="Grouped Data or Each Column",theme_config = list(axis.text.y = element_text(size = 5),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)))
+
+}
+```
+
+
+```{r}
+#Create Functions to Detect and Remove Outleirs from Numeric Columns
+#Source: https://www.geeksforgeeks.org/how-to-remove-outliers-from-multiple-columns-in-r-dataframe/
+
+# create detect outlier function
+detect_outlier <- function(x) {
+   
+    # calculate first quantile
+    Quantile1 <- quantile(x, probs=.25)
+   
+    # calculate third quantile
+    Quantile3 <- quantile(x, probs=.75)
+   
+    # calculate inter quartile range
+    IQR = Quantile3-Quantile1
+   
+    # return true or false
+    x > Quantile3 + (IQR*1.5) | x < Quantile1 - (IQR*1.5)
+}
+ 
+# create remove outlier function
+remove_outlier <- function(dataframe,
+                            columns=names(dataframe)) {
+   
+    # for loop to traverse in columns vector
+    for (col in columns) {
+       
+        # remove observation if it satisfies outlier function
+        dataframe <- dataframe[!detect_outlier(dataframe[[col]]), ]
+    }
+   
+    # return dataframe
+    print("Remove outliers")
+    print(dataframe)
+}
+```
+
+```{r}
+#Structure and EDA for Flights before transformation
+Structure_EDA(flights)
+```
+
+```{r}
+#AIR_TIME and DISTANCE need to be changed to numerical data
+flights <- flights %>%
+  mutate(
+    AIR_TIME = as.numeric(AIR_TIME),
+    DISTANCE = as.numeric(DISTANCE)
+  )
+```
+
+```{r}
+#Impute NA's using median in order to have a complete data set
+flights<- flights%>% mutate(across(where(is.numeric), ~replace_na(., median(., na.rm=TRUE))))
+```
+
+```{r}
+#There seems to be outliers in AIR_TIME,ARR_DELAY,DEP_DELAY, and DISTANCE and need to be identified and removed. 
+flights<-remove_outlier(flights,c("AIR_TIME","ARR_DELAY","DEP_DELAY","DISTANCE"))
+```
+
+
+```{r}
+#Structure and EDA for flights after transformation
+Structure_EDA(flights)
+```
+
+```{r}
+#Structure and EDA for airport_codes before transformation
+Structure_EDA(airport_codes)
+```
+
+
+```{r}
+#As Continent Column is entirely Missing it will be removed entirely
+airport_codes<-select(airport_codes,c(-CONTINENT))
+
+#As this imputing NA's is not a valid solution for this data set as the majority of the missing data set is not numeric, I will be remove all NA's
+
+airport_codes<-na.omit(airport_codes)
+
+```
+
+```{r}
+#Structure and EDA for airport_codes after transformation
+Structure_EDA(airport_codes)
+```
+
+
+```{r}
+#Structure and EDA for tickets before transformation
+Structure_EDA(tickets)
+```
+
+```{r}
+#ITIN_FARE need to be changed to numerical data
+tickets <- tickets %>%
+  mutate(
+    ITIN_FARE = as.numeric(ITIN_FARE))
+```
+
+```{r}
+#Impute NA's using median in order to have a complete data set
+tickets<- tickets%>% mutate(across(where(is.numeric),
+                                   ~replace_na(., median(., na.rm=TRUE))))
+```
+
+```{r}
+#There seems to be outliers in ITIN_FARE and PASENGERS need to be identified and removed. 
+tickets<-remove_outlier(tickets,c("ITIN_FARE","PASSENGERS"))
+Structure_EDA(tickets)
+```
+
+#### Data Munging
+
+```{r}
+create_final_df <- function(tickets, flights, airport_codes) {
+  # Creates a vector containing the IATA codes of medium airports
+  medium_airports <- airport_codes %>%
+    filter(TYPE == "medium_airport") %>%
+    pull(IATA_CODE)
+
+  # Filters out airports that are not Medium or Large
+  flights_filtered <- flights %>% 
+    filter(ORIGIN %in% airport_codes$IATA_CODE & 
+             DESTINATION %in% airport_codes$IATA_CODE) %>%
+    # Creates two columns called ORIGIN_AIRPORTSIZE and DESTINATION_AIRPORTSIZE
+    mutate(
+      ORIGIN_AIRPORTSIZE = if_else(ORIGIN %in% medium_airports,
+                                   "medium_airport", "large_airport"),
+      DESTINATION_AIRPORTSIZE = if_else(DESTINATION %in% medium_airports,
+                                        "medium_airport", "large_airport"))
+
+  # Aggregate Ticket data set to ORIGIN & DESTINATION by mean of ITIN_FARE to perform an inner_join
+  agg_tbl <- tickets %>% group_by(ORIGIN, DESTINATION) %>% 
+    summarise(ITIN_FARE = round(mean(ITIN_FARE), 2), .groups = 'drop') 
+
+  # Create final data frame by performing inner join
+  finaldf <- flights_filtered %>% inner_join(agg_tbl,
+                                              by = c("ORIGIN" = "ORIGIN",
+                                                     "DESTINATION" = "DESTINATION"))
+
+  return(finaldf)
+}
+
+# Call the function and store the result in final_df
+finaldf <- create_final_df(tickets, flights, airport_codes)
+```
+
+```{r}
+#Makes a variable that makes round trips ordered one way in order to be aggregated
+finaldf<- finaldf %>% mutate(Pair = ifelse(DESTINATION < ORIGIN,
+                         paste(DESTINATION, ORIGIN, sep = ','),
+                         paste(ORIGIN, DESTINATION, sep = ',')))
+```
+
+```{r}
+head(finaldf)
+```
+
+#### Craft a Visual Data Narrative
+
+__1.The 10 Busiest round trip routes__
+
+```{r}
+# Function to create a summarized plot
+create_summary_plot <- function(data, x_var, y_var, fill_color, title, y_label) {
+  # Capture y_var as a symbol using rlang's ensym() to handle variable scoping
+  y_var <- ensym(y_var)
+  # Summarize the data and create a bar plot
+  data %>%
+    top_n(n = 10, wt = !!y_var) %>%
+    ggplot(aes(x = reorder(.data[[x_var]], -!!y_var), y = !!y_var)) +
+    geom_bar(stat = "identity", width = 0.5, fill = fill_color) +
+    # Styling
+    theme_bw() +
+    labs(title = title,
+         x = "Flight Route",
+         y = y_label) +
+    theme(axis.text.x = element_text(angle = 65, vjust = 0.6)) +
+    scale_y_continuous(labels = scales::comma)
+}
+```
+
+```{r}
+agg_tbl2 <- finaldf %>%
+  group_by(Pair) %>%
+  summarise(Total_Count = sum(n()), .groups = 'drop') %>%
+  arrange(desc(Total_Count)) 
+
+#Data table in order
+datatable(head(agg_tbl2,10))
+
+#Create Visualization of top 10 Busiest Round Trips
+create_summary_plot(agg_tbl2, "Pair", Total_Count, "tomato3", "Ordered Bar Chart 10 Busiest Round Trip Routes", "Number of Flights")
+```
+
+__2.Most Profitable Airlines__
+```{r}
+##Creating Variables related to the Cost calculation and then create the cost calculation
+finaldf <- finaldf %>%
+  mutate(
+    #Create a variable to Check if a Delay is more than 15 mins to calculate the amount owed for DEP_DELAY and ARR_DELAY
+    DEP15 = pmax((DEP_DELAY - 15) * 75, 0),
+    ARR15 = pmax((ARR_DELAY - 15) * 75, 0),
+    #Create a variable to check amount per mile for Fuel, Oil, Maintenance, and Depreciation
+    CPM = round(9.10 * DISTANCE,2),
+    #Create two variables to calculate operation cost for ORIGIN and DESTINATION airports
+    OOC = ifelse(ORIGIN_AIRPORTSIZE == "medium_airport", 5000, 10000),
+    DOC = ifelse(DESTINATION_AIRPORTSIZE == "medium_airport", 5000, 10000), 
+    COST = round((DEP15+ARR15+OOC+DOC+CPM),2)
+  )
+```
+
+```{r}
+#Creating variables related to the revenue calculation and then create the revenue and profit calculation
+finaldf <- finaldf %>%
+  mutate(
+    #Create a variable to Check Ticket Revenue
+    TREV = (200*OCCUPANCY_RATE*ITIN_FARE),
+    #Create a variable to check bag fee revenue
+    BREV = (200*OCCUPANCY_RATE*.50*70),
+    #Create a variable to check Total revenue
+    REV = (TREV+BREV),
+    #Make profit variable
+    PROFIT = round(REV-COST,2)
+  )
+```
+
+
+```{r}
+#Get the Top 10 most profitable flights grouped by pair
+agg_tbl3 <- finaldf %>%
+  group_by(Pair) %>%
+  summarise(Sum_Profit = round(sum(PROFIT), 2),
+            Sum_Cost = round(sum(COST), 2),
+            Sum_Rev = round(sum(REV), 2),
+            Occupancy = round(mean(OCCUPANCY_RATE), 2),
+            Itin_Fare = round(mean(ITIN_FARE), 2),
+            Distance = round(mean(DISTANCE), 2),
+            Arrival_Delay = round(mean(ARR_DELAY), 2),
+            Departure_Delay = round(mean(DEP_DELAY), 2),
+            .groups = 'drop') %>%
+  arrange(desc(Sum_Profit)) 
+
+#Data table in order
+datatable(head(agg_tbl3,10))
+
+# Create a summarized plot for the 10 most profitable trips
+create_summary_plot(agg_tbl3, "Pair", Sum_Profit, "blue3", "Ordered Bar Chart 10 Most Profitable Trips", "Profit in Dollars")
+
+# Create a summarized plot for the 10 most profitable trips ordered by revenue
+A<-create_summary_plot(agg_tbl3, "Pair", Sum_Rev, "green3", "10 Most Profitable Trips Ordered by Revenue", "Revenue in Dollars")
+
+# Create a summarized plot for the 10 most profitable trips ordered by cost
+B<-create_summary_plot(agg_tbl3, "Pair", Sum_Cost, "tomato3", "10 Most Profitable Trips Ordered by Cost", "Cost in Dollars")
+
+#Compare costs and Revenue Side by Side
+ggarrange(A,B,nrow=2)
+
+#Summary statistics of Data Set
+no_hist <- skim_with(ts = sfl(line_graph = NULL))
+agg_tbl3 %>% no_hist() %>% yank("numeric") %>% 
+  select(-c("n_missing","complete_rate","sd")) %>%datatable()
+
+corr <- (cor(select(agg_tbl3,-c("Pair")))) 
+
+#Create Correlogram to look at relationships between key components
+ggcorrplot(corr, hc.order = TRUE, 
+           type = "lower", 
+           lab = TRUE, 
+           lab_size = 3, 
+           method="square", 
+           colors = c("tomato2", "white", "springgreen3"), 
+           title="Correlogram of Key Components", 
+           ggtheme=theme_bw())
+```
+
+__3. My personal five best__
+```{r}
+agg_tbl4 <- finaldf %>%
+  group_by(Pair) %>%
+  summarise(Sum_Profit = round(sum(PROFIT), 2),
+            Sum_Cost = round(sum(COST), 2),
+            Sum_Rev = round(sum(REV), 2),
+            Occupancy = round(mean(OCCUPANCY_RATE), 2),
+            Itin_Fare = round(mean(ITIN_FARE), 2),
+            Distance = round(mean(DISTANCE), 2),
+            Arrival_Delay = round(mean(ARR_DELAY), 2),
+            Departure_Delay = round(mean(DEP_DELAY), 2),
+            Total_Count = sum(n()),
+            .groups = 'drop') %>%
+  #Create variable to calculate Departure Delay per Passenger 
+  mutate(DDP=round(Departure_Delay/Occupancy*200,2),
+  #Create variable to calculate to create a Pseudo Net Profit Margin formula as we are missing Interest and Taxes
+         PM=(round(Sum_Profit/Sum_Rev*100,2)))
+```
+
+```{r}
+#find the 75th percentile for Profit 
+Q1<-quantile(agg_tbl4$Sum_Profit, probs = .95)
+
+#finding the 90th percentile for Profit Margin
+Q2<-quantile(agg_tbl4$PM, probs = .9)
+```
+
+```{r}
+#Filter out SUM_Profit that are lower than the 95 percentile for Profit and 90 Percentile for Profit Margin
+
+agg_tbl4 <- agg_tbl4 %>%
+  filter(Sum_Profit >= Q1,
+         PM >= Q2) %>%
+#arrange by Departure Delay by Passenger
+        arrange(DDP) %>% head(5)
+
+datatable(head(agg_tbl4,10))
+
+# Create a summarized plot for the 10 most profitable trips ordered by Departure Delay by Passenger
+ggplot(data=agg_tbl4,aes(x=reorder(Pair,DDP),y=Sum_Profit,fill=PM))+ geom_bar(stat='identity')+ 
+  scale_fill_viridis(option = "C")+
+  labs(x="Flight Route",
+       y="Total Profit",
+       title="5 Recommended Flights Routes Ordered by\nDeparture Delay Per Passenger",
+       fill="Profit Margin") + scale_y_continuous(labels = scales::comma)
+```
+
+__4.Number of round trips flight it will take to break even on the upfront cost for each of the 5 round trips__
+
+```{r}
+agg_tbl4<-agg_tbl4 %>% 
+  #Create Break even variable
+  mutate(Breakeven=90000000/(Sum_Profit/Total_Count))
+
+datatable(agg_tbl4)
+
+create_summary_plot(agg_tbl4, "Pair", Breakeven, "tomato3", "Amount of Flights Required to Breakeven\nfor Recommended Flights", "Amount of Flights")
+
+#Summary Statistics for Recommended Flights
+agg_tbl4 %>% no_hist() %>% yank("numeric") %>% 
+  select(-c("n_missing","complete_rate","sd")) %>%datatable()
+```
+
+__5.KPI to check for recommended flights__
+
+Considering that the company's motto is "On time, for you." I selected KPIs that emphasize punctuality and client happiness.
+
+Considering that the company’s motto is “On time, for you.” I chose KPIs that emphasize punctuality and client happiness.
+
+1. Delay Reason: I want to keep track of the causes of delays because it might help us understand when a certain flight route is experiencing frequent delays and how we might be able to address these issues for on-time plane departures.
+
+2. Cancellation Rate: Like Delay Reason, I want to know when flights are being canceled, understand why they are being cancelled so that I can reduce the frequency of flight cancellation.
+
+3. Arrival Punctuality: Displays the proportion of flights that were late. Important because we aim to maintain a high level of passenger satisfaction by maintaining flight on-time performance.
+
+4.  Passenger Quota: Calculates the proportion of all passengers who arrived on time at the destination airport.
+
+5. Jet Fuel Price Index: as a Percentage of Cost: Jet fuel is one of the significant expenses any airline faces. The airline does not control the fuel prices and can be highly volatile due to its dependency on several external factors. Fuel can account for anywhere between 30% - 60% of the airline's operating costs.
+
+
+
+#### Final Recommendations:
+The five round trip flights I recommend are:
+1. (DFW,XNA) 2. (CID,ORD) 3. (IAH,MAF) 4. (CLT,ROA) 5. (CLT,MYR)
+
+I chose these round-trip flights based on three important metrics. Profit, Profit margin, and Departure Delay per Passenger. The first two KPI are expected. The client shouldn't enter the US market if the round-trip flight isn't profitable or doesn't have a good margin to start with. The third metric is to emphasis the clients' priority on delivering passenger to their destination on time. Given that the client beliefs they have a competitive advantage, a metric that prioritizes their flight routes by departure delay seems paramount.
+
+
+#### What's Next
+First off, given that we have such a sizable and reliable data collection, I think it would be feasible to establish a test and training set and utilize supervised machine learning techniques on this data set to determine what the major influences are on DEP_Delay and ARR_Delay, Profit and Profitability.
+
+Second, I might consider including geographic visualizations to see if I can gain additional insight into certain groups of round-trip flights and determine whether geographical regions are more lucrative than others.
+
+Thirdly, to determine what variables in our data most strongly correlate with cancelled flights, I would also examine associations in the cancelled flight data set.
+
+Fourthly, I would like to use machine learning techniques to impute missing data if I had more time. I choose to utilize a median imputation because this is an extremely computationally costly task.
+
+Finally, I have the option to utilize the 95th percentile for profit and the 90th percentile for profit margin. However, rather than arranging them in ascending order, I can arrange them in descending order based on the departure delay per passenger. This approach aims to focus on markets where flights have a high profit/profit margin per roundtrip but will sort our recommendation by routes that have the most delays.
+
+
