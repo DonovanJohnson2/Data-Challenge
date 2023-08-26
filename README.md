@@ -3,7 +3,9 @@ Consulting for an airline company looking to enter the United States domestic ma
 
 Airport_Codes: Information on airports and includes airport code, city, country, and coordinates
 Rows of data: 55,369
+
 Flights: Flights data for Q1 2019 and includes date, origin, destination, distance, flight number, and occupancy rate
 Rows of data: 1,048,513
+
 Tickets: Sample tickets data for Q1 2019 and includes itinerary details and fare information.  Consider round trips only for your analysis.
 Rows of data: 1,167,202
